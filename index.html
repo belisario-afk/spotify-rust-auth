@@ -3,48 +3,60 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rust Spotify Link</title>
+    <title>Rust Spotify Auto-Linker</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body { background-color: #121212; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
         .spotify-green { background-color: #1DB954; }
         .spotify-green:hover { background-color: #1ed760; }
+        input { background-color: #282828; color: white; border: 1px solid #404040; }
+        input:focus { outline: none; border-color: #1DB954; }
     </style>
 </head>
-<body class="flex items-center justify-center h-screen m-0">
+<body class="flex items-center justify-center min-h-screen m-0 py-10">
 
     <div class="bg-[#181818] p-10 rounded-xl shadow-2xl max-w-md w-full text-center border border-gray-800">
         <img src="https://storage.googleapis.com/pr-newsroom-wp/1/2018/11/Spotify_Logo_RGB_White.png" alt="Spotify" class="h-12 mx-auto mb-8">
         
+        <!-- STEP 1: SPOTIFY LOGIN -->
         <div id="step-login">
             <h1 class="text-2xl font-bold mb-4">Link Rust to Spotify</h1>
-            <p class="text-gray-400 mb-8 text-sm">Authorize your account to control music using in-game wall buttons inside your Rust base.</p>
-            <button onclick="loginWithSpotify()" class="spotify-green text-black font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg">
-                Connect Spotify Account
+            <p class="text-gray-400 mb-8 text-sm">Log in to Spotify first. After authorization, this page will automatically send your data directly to the Rust Server.</p>
+            <button onclick="loginWithSpotify()" class="spotify-green text-black font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg w-full">
+                1. Connect Spotify Account
             </button>
         </div>
 
-        <div id="step-code" class="hidden">
-            <h1 class="text-2xl font-bold mb-4">You're almost done!</h1>
-            <p class="text-gray-400 mb-4 text-sm">Copy the command below and paste it into the Rust in-game chat.</p>
+        <!-- STEP 2: RCON AUTOMATIC INJECTION -->
+        <div id="step-rcon" class="hidden">
+            <h1 class="text-2xl font-bold mb-2">Spotify Linked!</h1>
+            <p class="text-gray-400 mb-6 text-sm">Enter your Steam ID to finish the setup.</p>
             
-            <div class="bg-black p-4 rounded-lg flex items-center justify-between mb-6 border border-gray-700">
-                <code id="auth-command" class="text-[#1DB954] font-mono text-sm break-all"></code>
+            <div class="text-left">
+                <label class="block text-xs text-gray-400 mb-1">Your Steam ID (64-bit)</label>
+                <input type="text" id="steam-id" placeholder="7656119..." class="w-full p-3 rounded">
             </div>
 
-            <button onclick="copyCommand()" class="bg-white text-black font-bold py-2 px-6 rounded-full hover:bg-gray-200 transition duration-300 w-full">
-                Copy Command
+            <button id="send-btn" onclick="sendToRust()" class="spotify-green text-black font-bold py-3 px-8 rounded-full transition duration-300 shadow-lg w-full mt-6">
+                2. Send to Rust Server
             </button>
-            <p id="copy-status" class="text-sm text-[#1DB954] mt-3 hidden">Copied to clipboard!</p>
+            
+            <p id="status-msg" class="text-sm mt-4 font-bold hidden"></p>
         </div>
     </div>
 
     <script>
         // ==========================================
-        // CONFIGURATION: CHANGE THIS BEFORE HOSTING!
+        // CONFIGURATION (CHANGE THESE!)
         // ==========================================
         const CLIENT_ID = "2a31097ec0e64dc99ba46002bac64623"; 
-        const REDIRECT_URI = window.location.href.split('?')[0]; // Auto-detects your github pages URL
+        const SERVER_IP = "172.240.87.77";
+        const RCON_PORT = "28016"; // Change if your WebRcon port is different
+        const RCON_PASSWORD = "7b93eac54306";
+        
+        // Auto-detects your Github Pages URL
+        const REDIRECT_URI = window.location.href.split('?')[0]; 
+        let spotifyAuthCode = "";
 
         function loginWithSpotify() {
             const scope = "user-modify-playback-state";
@@ -57,22 +69,54 @@
             const code = urlParams.get('code');
 
             if (code) {
+                spotifyAuthCode = code;
                 document.getElementById('step-login').classList.add('hidden');
-                document.getElementById('step-code').classList.remove('hidden');
-                document.getElementById('auth-command').innerText = `/spotify auth ${code}`;
+                document.getElementById('step-rcon').classList.remove('hidden');
                 
-                // Clear the URL for security/cleanliness
+                // Clear the URL so the code isn't sitting in the address bar
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         }
 
-        function copyCommand() {
-            const cmd = document.getElementById('auth-command').innerText;
-            navigator.clipboard.writeText(cmd).then(() => {
-                const status = document.getElementById('copy-status');
-                status.classList.remove('hidden');
-                setTimeout(() => status.classList.add('hidden'), 3000);
-            });
+        function sendToRust() {
+            const steamId = document.getElementById('steam-id').value.trim();
+            const statusMsg = document.getElementById('status-msg');
+            const btn = document.getElementById('send-btn');
+
+            if (!steamId) {
+                statusMsg.innerText = "Please enter your Steam ID.";
+                statusMsg.className = "text-sm mt-4 font-bold text-red-500 block";
+                return;
+            }
+
+            btn.innerText = "Connecting...";
+            btn.disabled = true;
+
+            // Connect to Rust WebRcon using hardcoded credentials
+            const ws = new WebSocket(`ws://${SERVER_IP}:${RCON_PORT}/${RCON_PASSWORD}`);
+            
+            ws.onopen = () => {
+                // Send the console command to the Rust Server
+                const payload = {
+                    Identifier: 1, 
+                    Message: `spotify.auth ${steamId} ${spotifyAuthCode}`,
+                    Name: "Spotify Web App"
+                };
+                
+                ws.send(JSON.stringify(payload));
+                
+                statusMsg.innerText = "Success! Command sent to your Rust Server. You can now bind buttons in-game.";
+                statusMsg.className = "text-sm mt-4 font-bold text-[#1DB954] block";
+                btn.innerText = "Done";
+                ws.close();
+            };
+
+            ws.onerror = (e) => {
+                statusMsg.innerText = "Connection Failed. The server might be offline or RCON details are incorrect.";
+                statusMsg.className = "text-sm mt-4 font-bold text-red-500 block";
+                btn.innerText = "Try Again";
+                btn.disabled = false;
+            };
         }
 
         window.onload = checkUrlForCode;
